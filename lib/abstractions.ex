@@ -1,5 +1,6 @@
 defmodule PerfectLink do
   use GenServer
+  alias ElixirSense.Log
   alias Protobuf
   require Logger
 
@@ -18,14 +19,7 @@ defmodule PerfectLink do
     #GenServer.start_link(__MODULE__, {:init_state, opts}, name: {:local, opts[:port]})
   end
 
-  def accept(socket, genserver) do
-    Task.start_link(fn ->
-      {:ok, client} = :gen_tcp.accept(socket)
-      Logger.info("Accept worked!")
-      # Send the client back to the genserver for processing
-      GenServer.cast(genserver, {:new_client, client})
-    end)
-  end
+
 
   def send_register_message(port, index) do
     Logger.info("Sending register message with index #{index} to port #{port}")
@@ -55,10 +49,10 @@ defmodule PerfectLink do
         :ok = :gen_tcp.close(socket)
   end
 
-  def accept(opts) do
-    {:ok, client} = :gen_tcp.accept(opts[:socket])
-      Logger.info("Accept worked!")
-  end
+  # def accept(opts) do
+  #   {:ok, client} = :gen_tcp.accept(opts[:socket])
+  #     Logger.info("Accept worked!")
+  # end
 
   def init({:init_state, opts}) do
     Logger.info("Initiating pl")
@@ -68,6 +62,7 @@ defmodule PerfectLink do
     new_opts = Keyword.put(opts, :socket, socket)
     send_register_message(opts[:port], opts[:index])
     Logger.info("Register message sent with index #{opts[:index]} to port #{opts[:port]}")
+    :gen_tcp.controlling_process(socket, self())
     accept(socket, self()) # Spawn a new process to accept connections
     # accept(new_opts)
 
@@ -78,7 +73,19 @@ defmodule PerfectLink do
     "Hello world!"
   end
 
-
+  def accept(socket, genserver) do
+    Task.start_link(fn ->
+      Logger.info "Starting accept task on socket #{inspect socket}"
+      {:ok, client} = :gen_tcp.accept(socket)
+      Logger.info("Accept worked! #{inspect client}")
+      # Set options
+      :inet.setopts(client, [:binary, active: true, reuseaddr: true])
+      #Controlling process needs to be set to genserver - pl link abstraction, it is initially set to the Task
+      :gen_tcp.controlling_process(client, genserver)
+      # Send the client back to the genserver for processing
+      GenServer.cast(genserver, {:new_client, client})
+    end)
+  end
 
   def handle_call({:send, message}, {socket, opts}) do
     encoded = Main.Message.encode(message)
@@ -96,6 +103,8 @@ defmodule PerfectLink do
     case :gen_tcp.accept(socket) do
       {:ok, client_socket} ->
         Logger.info("Accept worked!" + inspect client_socket)
+        # GenServer.cast(genserver, {:new_client, client})
+
         # Process the client socket as necessary
       {:error, _} -> Logger.info("Error: Accept failed!")
         # Handle error
@@ -106,7 +115,9 @@ defmodule PerfectLink do
 
   def handle_cast({:new_client, client}, state) do
     # Start listening to the client
+    Logger.info("New client: #{inspect client}")
     :inet.setopts(client, [:binary, active: true, reuseaddr: true])
+    :gen_tcp.controlling_process(client, self())
     {:noreply, state}
   end
 
