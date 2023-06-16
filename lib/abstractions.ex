@@ -18,12 +18,14 @@ defmodule PerfectLink do
     #GenServer.start_link(__MODULE__, {:init_state, opts}, name: {:local, opts[:port]})
   end
 
-  def sendCom(server_name, port, message) do
-    Logger.info("Sending message #{message} to port #{port}")
-    server_name = {:global, String.to_atom("server_#{port}")}
-    GenServer.call(server_name, {:send, message})
+  def accept(socket, genserver) do
+    Task.start_link(fn ->
+      {:ok, client} = :gen_tcp.accept(socket)
+      Logger.info("Accept worked!")
+      # Send the client back to the genserver for processing
+      GenServer.cast(genserver, {:new_client, client})
+    end)
   end
-
 
   def send_register_message(port, index) do
     Logger.info("Sending register message with index #{index} to port #{port}")
@@ -61,11 +63,14 @@ defmodule PerfectLink do
   def init({:init_state, opts}) do
     Logger.info("Initiating pl")
     Logger.info(opts)
-    {:ok, socket} = :gen_tcp.listen(opts[:port], [:binary, active: false, reuseaddr: true])
+    {:ok, socket} = :gen_tcp.listen(opts[:port], [:binary, active: true, reuseaddr: true])
     Logger.info("Listening on port #{opts[:port]}")
     new_opts = Keyword.put(opts, :socket, socket)
     send_register_message(opts[:port], opts[:index])
     Logger.info("Register message sent with index #{opts[:index]} to port #{opts[:port]}")
+    accept(socket, self()) # Spawn a new process to accept connections
+    # accept(new_opts)
+
     {:ok, new_opts}
   end
 
@@ -99,6 +104,12 @@ defmodule PerfectLink do
     {:noreply, {socket, opts}}
   end
 
+  def handle_cast({:new_client, client}, state) do
+    # Start listening to the client
+    :inet.setopts(client, [:binary, active: true, reuseaddr: true])
+    {:noreply, state}
+  end
+
   def handle_info({:tcp_error, socket, reason}, state) do
     Logger.info("Received error on socket #{inspect socket}: #{inspect reason}")
     {:noreply, state}
@@ -109,8 +120,16 @@ defmodule PerfectLink do
     {:noreply, state}
   end
 
+  def handle_info({:tcp, _socket, <<size::unsigned-32, msg::binary>>}, state) do
+    Logger.info("Received message: #{inspect(msg)}")
+    decoded = Main.Message.decode(msg)
+    Logger.info("Decoded message: #{inspect(decoded)}")
+    Logger.info("Cleaned message: #{inspect(MapUtils.clean_map(decoded))}")
+    {:noreply, state}
+  end
+
   def handle_info(msg, state) do
-    Logger.warn("Received unexpected message: #{inspect(msg)}")
+    Logger.info("Received unexpected message: #{inspect(msg)}")
     {:noreply, state}
   end
 
