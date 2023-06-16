@@ -31,3 +31,8 @@ defmodule Queue do
     {:reply, value, %{state | queue: queue}}
   end
 end
+
+
+defmodule Queue.Supervisor do
+  
+end
