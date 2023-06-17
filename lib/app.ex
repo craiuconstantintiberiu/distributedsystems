@@ -49,7 +49,7 @@ defmodule App.Supervisor do
       Supervisor.child_spec({App, [port: port, index: index]}, id: :"app_#{id}"),
       Supervisor.child_spec({Beb.Supervisor, opts}, id: :"beb_supervisor_#{id}"),
       Supervisor.child_spec({PerfectLink.Supervisor, opts}, id: :"pl_supervisor_#{id}"),
-      Supervisor.child_spec({PerfectLink.Supervisor, opts}, id: :"queue_supervisor_#{id}")
+      Supervisor.child_spec({Queue.Supervisor, opts}, id: :"queue_supervisor_#{id}")
 
     ]
 

@@ -3,12 +3,27 @@ defmodule Queue do
   require Logger
 
   def start_link(opts \\ []) do
-    Logger.info("Starting queue")
-    GenServer.start_link(__MODULE__, %{}, name: "#{__MODULE__}_#{opts[:port]}_#{opts[:index]}")
-  end
 
-  def init(init_arg) do
-    {:ok, %{port: init_arg[:port], index: init_arg[:index], queue: :queue.new}}
+    server_name = "queue_#{opts[:port]}_#{opts[:index]}"
+    Logger.info(server_name)
+
+    case GenServer.start_link(__MODULE__, {:init_state, opts}, name: String.to_atom(server_name)) do
+      {:ok, pid} ->
+        Logger.info("Queue started on port #{opts[:port]} with pid #{inspect(pid)}")
+        {:ok, pid}
+
+      {:error, reason} ->
+        Logger.error(
+          "Queue failed to start on port #{opts[:port]} with reason #{inspect(reason)}"
+        )
+
+        {:error, reason}
+    end
+    end
+
+    def init({:init_state, opts}) do
+    new_arg = Keyword.put(opts, :queue, :queue.new)
+    {:ok, new_arg}
   end
 
   def enqueue(name, item) do
@@ -34,5 +49,25 @@ end
 
 
 defmodule Queue.Supervisor do
-  
+  use Supervisor
+  require Logger
+  def start_link(%{port: port, index: index} = init_arg) do
+    Logger.info("Starting supervisor.")
+    Supervisor.start_link(__MODULE__, init_arg,
+      name: String.to_atom("#{__MODULE__}_#{port}_#{index}")
+    )
+  end
+
+  def init(%{port: port, index: index} = opts) do
+    id = "#{port}_index_#{index}"
+    Logger.info("Starting queue #{id}")
+
+    children = [
+      Supervisor.child_spec({Queue, [port: port, index: index]}, id: :"queue_#{id}")
+
+    ]
+
+
+    Supervisor.init(children, strategy: :one_for_one, name: "#{__MODULE__}_#{port}_#{index}")
+  end
 end

@@ -179,7 +179,7 @@ defmodule PerfectLink do
 
       final_message.appBroadcast ->
         Logger.info(
-          "Received message app.Broadcast (should be passed to hub or put in queue): #{inspect(final_message.appBroadcast)}"
+          "Received message app.Broadcast (should be put in queue): #{inspect(final_message.appBroadcast)}"
         )
 
         Logger.info("Value: #{inspect(final_message.appBroadcast.value)}")
