@@ -1,6 +1,6 @@
 defmodule PerfectLink do
   use GenServer
-  alias ElixirSense.Log
+  import Abstractionnaming
   alias Protobuf
   require Logger
 
@@ -10,7 +10,7 @@ defmodule PerfectLink do
     server_name = "pl_#{opts[:port]}_#{opts[:index]}"
     Logger.info(server_name)
 
-    case GenServer.start_link(__MODULE__, {:init_state, opts}, name: String.to_atom(server_name)) do
+    case GenServer.start_link(__MODULE__, {:init_state, opts}, name: String.to_atom(get_pl_name(opts[:port], opts[:index]))) do
       {:ok, pid} ->
         Logger.info("PerfectLink started on port #{opts[:port]} with pid #{inspect(pid)}")
         {:ok, pid}
@@ -150,74 +150,79 @@ defmodule PerfectLink do
     # Logger.info("Type: #{decoded.type}")
     # Logger.info("NetworkMessage: #{inspect(decoded.networkMessage)}")
     final_message = decoded.networkMessage.message
+
     Logger.info("Message after stripping networkMessage part: #{inspect(final_message)}")
-
-    cond do
-      final_message.procInitializeSystem ->
-        Logger.info(
-          "NetworkMessageMessageProcInitializeSystem: #{inspect(final_message.procInitializeSystem)}"
-        )
-
-        Logger.info(
-          "NetworkMessageMessageProcInitializeSystem: #{inspect(final_message.procInitializeSystem.processes)}"
-        )
-
-        # put all the processes in the procInitializeSystem in state
-        new_state =
-          Keyword.put(
-            state,
-            :processes,
-            decoded.networkMessage.message.procInitializeSystem.processes
-          )
-
-        Logger.info("State with new processes: #{inspect(new_state)}")
-        {:noreply, new_state}
-
-      final_message.procDestroySystem ->
-        Logger.info("Received procDestroySystem message. Ignoring")
-        {:noreply, state}
-
-      final_message.appBroadcast ->
-        Logger.info(
-          "Received message app.Broadcast (should be put in queue): #{inspect(final_message.appBroadcast)}"
-        )
-
-        Logger.info("Value: #{inspect(final_message.appBroadcast.value)}")
-        value = final_message.appBroadcast.value
-        Logger.info("Value: #{inspect(value)}")
-
-        # send message to all processes in state
-        Logger.info("State: #{inspect(state)}")
-        Logger.info("Processes: #{inspect(Keyword.get(state, :processes))}")
-
-        # for each process in state, send message
-        Enum.each(Keyword.get(state, :processes), fn process ->
-          Logger.info("Sending message to process #{inspect(process)}")
-          struct = %Main.Message{
-            :type => 0,
-            :networkMessage => %Main.NetworkMessage{
-              :senderHost => "127.0.0.1",
-              :senderListeningPort => state[:port],
-              :message => %Main.Message{
-                :type => 1,
-                :procRegistration => %{
-                  :owner => "tibi",
-                  :index => 2
-                }
-              }
-            }
-          }
-
-          # send message to process
-          send_message(process.host, process.listeningPort, value)
-        end)
-
-        {:noreply, state}
-      true ->
-        # default case, equivalent to 'else'
-        {:noreply, state}
-    end
+    #Enqueue message
+    # Logger.info("Enqueuing message: #{inspect(final_message)}")
+    Queue.enqueue(String.to_atom(get_queue_name(state[:port], state[:index])), final_message)
+    {:noreply, state}
   end
+    # cond do
+    #   final_message.procInitializeSystem ->
+    #     Logger.info(
+    #       "NetworkMessageMessageProcInitializeSystem: #{inspect(final_message.procInitializeSystem)}"
+    #     )
+
+    #     Logger.info(
+    #       "NetworkMessageMessageProcInitializeSystem: #{inspect(final_message.procInitializeSystem.processes)}"
+    #     )
+
+    #     # put all the processes in the procInitializeSystem in state
+    #     new_state =
+    #       Keyword.put(
+    #         state,
+    #         :processes,
+    #         decoded.networkMessage.message.procInitializeSystem.processes
+    #       )
+
+    #     Logger.info("State with new processes: #{inspect(new_state)}")
+    #     {:noreply, new_state}
+
+    #   final_message.procDestroySystem ->
+    #     Logger.info("Received procDestroySystem message. Ignoring")
+    #     {:noreply, state}
+
+    #   final_message.appBroadcast ->
+    #     Logger.info(
+    #       "Received message app.Broadcast (should be put in queue): #{inspect(final_message.appBroadcast)}"
+    #     )
+
+    #     Logger.info("Value: #{inspect(final_message.appBroadcast.value)}")
+    #     value = final_message.appBroadcast.value
+    #     Logger.info("Value: #{inspect(value)}")
+
+    #     # send message to all processes in state
+    #     Logger.info("State: #{inspect(state)}")
+    #     Logger.info("Processes: #{inspect(Keyword.get(state, :processes))}")
+
+    #     # for each process in state, send message
+    #     Enum.each(Keyword.get(state, :processes), fn process ->
+    #       Logger.info("Sending message to process #{inspect(process)}")
+    #       struct = %Main.Message{
+    #         :type => 0,
+    #         :networkMessage => %Main.NetworkMessage{
+    #           :senderHost => "127.0.0.1",
+    #           :senderListeningPort => state[:port],
+    #           :message => %Main.Message{
+    #             :type => 1,
+    #             :procRegistration => %{
+    #               :owner => "tibi",
+    #               :index => 2
+    #             }
+    #           }
+    #         }
+    #       }
+
+    #       # send message to process
+    #       send_message(process.host, process.listeningPort, value)
+    #     end)
+
+    #     {:noreply, state}
+    #   true ->
+    #     # default case, equivalent to 'else'
+    #     {:noreply, state}
+    # end
+  # end
 
   def handle_info(msg, state) do
     Logger.info("Received unexpected message: #{inspect(msg)}")
@@ -227,6 +232,7 @@ end
 
 defmodule PerfectLink.Supervisor do
   use Supervisor
+  import Abstractionnaming
   require Logger
 
 
@@ -240,7 +246,7 @@ defmodule PerfectLink.Supervisor do
     id = "pl_port_#{port}_index_#{index}"
 
     children = [
-      Supervisor.child_spec({PerfectLink, [port: port, index: index]}, id: :"#{id}")
+      Supervisor.child_spec({PerfectLink, [port: port, index: index]}, id: String.to_atom(get_pl_supervisor_name(port, index)))
     ]
 
     Logger.info("Starting pl child #{id}")
