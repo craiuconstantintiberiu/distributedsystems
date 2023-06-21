@@ -43,7 +43,7 @@ defmodule App do
 
   def send(name, msg) do
     Logger.info("Send message #{inspect(msg)} to app #{inspect(name)}")
-    GenServer.call(name, {:send, msg})
+    GenServer.cast(name, {:send, msg})
   end
 
 
@@ -51,7 +51,27 @@ defmodule App do
     {:reply, Keyword.get(state, :processes), state}
   end
 
-  def handle_call({:send, msg}, _from, state) do
+  def broadcast(value, state) do
+    struct = %Main.Message{
+      type: :BEB_BROADCAST,
+      ToAbstractionId: "beb",
+      bebBroadcast: %Main.BebBroadcast{
+        message: %Main.Message{
+          type: :APP_VALUE,
+          appValue: %Main.AppValue{
+            value: %Main.Value{
+              defined: true,
+              v: value
+            }
+          }
+        }
+      }
+    }
+
+    Queue.enqueue(String.to_atom(get_queue_name(state[:port], state[:index])), struct)
+  end
+
+  def handle_cast({:send, msg}, state) do
     Logger.info("App received message #{inspect(msg)}")
     cond do
       msg.procInitializeSystem ->
@@ -65,10 +85,11 @@ defmodule App do
           )
 
         Logger.info("State with new processes: #{inspect(new_state)}")
-        {:reply, :ok, new_state}
+        Beb.set_processes(String.to_atom(get_beb_name(state[:port], state[:index])), msg.procInitializeSystem.processes)
+        {:noreply, new_state}
       msg.procDestroySystem ->
         Logger.info("Ignoring destroy system message.")
-        {:reply, :ok, state}
+        {:noreply, state}
       msg.appBroadcast ->
         Logger.info("Received broadcast message. Will create broadcast message, and send it to queue, which will send it to beb.")
         # Or should we send it to beb directly?
@@ -82,31 +103,32 @@ defmodule App do
         # Logger.info("msg.appBroadcast.value.v: #{inspect(msg.appBroadcast.value.v)}")
 
         value = msg.appBroadcast.value.v
-        Logger.info("Value: #{inspect(value)}")
-        struct = %Main.Message{
-          type: :BEB_BROADCAST,
-          ToAbstractionId: "beb",
-          bebBroadcast: %Main.BebBroadcast{
-            message: %Main.Message{
-              type: :APP_VALUE,
-              appValue: %Main.AppValue{
-                value: %Main.Value{
-                  defined: true,
-                  v: value
-                }
-              }
-            }
-          }
-        }
-
-        Logger.info("Created broadcast message: #{inspect(struct)}")
-        #Pass to queue
-        Logger.info("Passing broadcast message to queue.")
-        Queue.enqueue(String.to_atom(get_queue_name(state[:port], state[:index])), struct)
-        {:reply, :ok, state}
+        broadcast(value, state)
+#        Logger.info("Value: #{inspect(value)}")
+#        struct = %Main.Message{
+#          type: :BEB_BROADCAST,
+#          ToAbstractionId: "beb",
+#          bebBroadcast: %Main.BebBroadcast{
+#            message: %Main.Message{
+#              type: :APP_VALUE,
+#              appValue: %Main.AppValue{
+#                value: %Main.Value{
+#                  defined: true,
+#                  v: value
+#                }
+#              }
+#            }
+#          }
+#        }
+#
+#        Logger.info("Created broadcast message: #{inspect(struct)}")
+#        #Pass to queue
+#        Logger.info("Passing broadcast message to queue.")
+#        Queue.enqueue(String.to_atom(get_queue_name(state[:port], state[:index])), struct)
+        {:noreply, state}
       true ->
         Logger.warn("Received message that does not match anything: #{inspect(msg)}")
-        {:reply, :ok, state}
+        {:noreply, state}
   end
 
   end

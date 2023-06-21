@@ -62,7 +62,7 @@ defmodule Queue do
 
   defp schedule_work() do
     # schedule to run every second
-    Process.send_after(self(), :work, 10_000)
+    Process.send_after(self(), :work, 1_000)
   end
 
   defp process_item(state, item) do
@@ -87,7 +87,14 @@ defmodule Queue do
 
         {:ok, :sent}
 
-      abstraction_id not in ["", nil] ->
+      item.bebBroadcast ->
+        Beb.broadcast(
+          String.to_atom(get_beb_name(state[:port], state[:index])),
+          item
+        )
+
+        {:ok, :sent}
+      abstraction_id == "app" ->
         # Here, you can write your logic to pass the message to the corresponding abstraction
         Logger.info("Queue: Sending message to abstraction #{abstraction_id}")
         App.send(
@@ -96,47 +103,14 @@ defmodule Queue do
         )
 
         {:ok, :sent}
+      abstraction_id == "beb" ->
+        Logger.info("Queue: Sending message to abstraction #{abstraction_id}")
+        Beb.send(
+          String.to_atom(get_name(abstraction_id, state[:port], state[:index])),
+          item
+        )
 
-      # final_message.procDestroySystem ->
-      #   Logger.info("Received procDestroySystem message. Ignoring")
-      #   {:noreply, state}
-
-      # final_message.appBroadcast ->
-      #   Logger.info(
-      #     "Received message app.Broadcast (should be put in queue): #{inspect(final_message.appBroadcast)}"
-      #   )
-
-      #   Logger.info("Value: #{inspect(final_message.appBroadcast.value)}")
-      #   value = final_message.appBroadcast.value
-      #   Logger.info("Value: #{inspect(value)}")
-
-      #   # send message to all processes in state
-      #   Logger.info("State: #{inspect(state)}")
-      #   Logger.info("Processes: #{inspect(Keyword.get(state, :processes))}")
-
-      #   # for each process in state, send message
-      #   Enum.each(Keyword.get(state, :processes), fn process ->
-      #     Logger.info("Sending message to process #{inspect(process)}")
-      #     struct = %Main.Message{
-      #       :type => 0,
-      #       :networkMessage => %Main.NetworkMessage{
-      #         :senderHost => "127.0.0.1",
-      #         :senderListeningPort => state[:port],
-      #         :message => %Main.Message{
-      #           :type => 1,
-      #           :procRegistration => %{
-      #             :owner => "tibi",
-      #             :index => 2
-      #           }
-      #         }
-      #       }
-      #     }
-
-      #     # send message to process
-      #     send_message(process.host, process.listeningPort, value)
-      #   end)
-
-      #   {:noreply, state}
+        {:ok, :sent}
       true ->
         # default case, equivalent to 'else'
         Logger.info("Unknown message. Reenquing")
@@ -146,28 +120,28 @@ defmodule Queue do
 
   def enqueue(name, item) do
     Logger.info("Enqueueing item #{inspect(item)} on queue #{name}")
-    GenServer.call(name, {:enqueue, item})
+    GenServer.cast(name, {:enqueue, item})
   end
 
   def dequeue(name) do
-    GenServer.call(name, :dequeue)
+    GenServer.cast(name, :dequeue)
   end
 
-  def handle_call({:enqueue, item}, _from, %{queue: queue} = state) do
+  def handle_cast({:enqueue, item}, %{queue: queue} = state) do
     Logger.info("Enqueueing item #{inspect(item)}")
-    {:reply, :ok, %{state | queue: :queue.in(item, queue)}}
+    {:noreply, %{state | queue: :queue.in(item, queue)}}
   end
 
-  def handle_call(:dequeue, _from, %{queue: queue} = state) do
+  def handle_cast(:dequeue, %{queue: queue} = state) do
     Logger.info("Dequeueing")
     {{:value, value}, queue} = :queue.out(queue)
     Logger.info("Dequeued item #{inspect(value)}")
-    {:reply, value, %{state | queue: queue}}
+    {:noreply, %{state | queue: queue}}
   end
 
-  def handle_call(msg, _from, %{queue: queue} = state) do
+  def handle_cast(msg, %{queue: queue} = state) do
     Logger.info("Unknown message #{inspect(msg)}")
-    {:reply, :error, %{state | queue: queue}}
+    {:noreply, %{state | queue: queue}}
   end
 end
 

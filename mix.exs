@@ -14,6 +14,7 @@ defmodule KV.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
+      mod: {Dist, []},
       extra_applications: [:logger, :httpoison]
     ]
   end
